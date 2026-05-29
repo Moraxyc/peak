@@ -678,6 +678,24 @@ func (w *Window) WalkDraw(s tcell.Screen) {
 	w.lk.Unlock()
 }
 
+func (win *Window) visibleRuneRange() (q0, q1 int) {
+	if tv, ok := win.body.(*TextView); ok {
+		if len(tv.layout) == 0 || tv.h <= 0 {
+			return 0, 0
+		}
+		scroll := tv.scroll.Pos
+		if scroll >= len(tv.layout) {
+			return 0, 0
+		}
+		last := min(scroll+tv.h-1, len(tv.layout)-1)
+		firstVL, lastVL := tv.layout[scroll], tv.layout[last]
+		q0 = tv.buffer.RuneOffsetOfPos(firstVL.BufferLine, firstVL.Start)
+		q1 = tv.buffer.RuneOffsetOfPos(lastVL.BufferLine, lastVL.End)
+		return q0, q1
+	}
+	return 0, 0
+}
+
 func (win *Window) subscribeEvent() *eventSub {
 	sub := newEventSub()
 	win.lk.Lock()

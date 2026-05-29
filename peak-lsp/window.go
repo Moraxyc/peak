@@ -98,7 +98,7 @@ func watchWindow(fs afero.Fs, id int, retitleCh <-chan string) {
 				if snap.tree != nil {
 					snap.tree.Release()
 				}
-				writeColorSpans(fs, base, nil, nil)
+				writeColorSpans(fs, base, nil, nil, 0, 0)
 				continue
 			}
 
@@ -113,7 +113,8 @@ func watchWindow(fs afero.Fs, id int, retitleCh <-chan string) {
 			}
 			mu.Unlock()
 
-			writeColorSpans(fs, base, snap.body, ranges)
+			viewportQ0, viewportQ1 := readViewport(fs, base)
+			writeColorSpans(fs, base, snap.body, ranges, viewportQ0, viewportQ1)
 		}
 	}()
 
@@ -230,28 +231,49 @@ func buildHighlighterForLang(lang string) *gotreesitter.Highlighter {
 	return hl
 }
 
+func readViewport(fs afero.Fs, base string) (q0, q1 int) {
+	data, err := afero.ReadFile(fs, base+"/viewport")
+	if err != nil {
+		return 0, 0
+	}
+	_, err = fmt.Sscanf(string(data), "%d %d", &q0, &q1)
+	if err != nil {
+		return 0, 0
+	}
+	return q0, q1
+}
+
 // writeColorSpans converts highlight ranges to rune-offset color spans and
 // writes them to the window's color file. It always opens and closes the file
 // so that an empty result clears stale spans from a previous highlight pass.
-func writeColorSpans(fs afero.Fs, base string, body []byte, ranges []gotreesitter.HighlightRange) {
+func writeColorSpans(fs afero.Fs, base string, body []byte, ranges []gotreesitter.HighlightRange, viewportQ0, viewportQ1 int) {
 	colorF, err := fs.OpenFile(base+"/color", os.O_WRONLY, 0)
 	if err != nil {
 		return
 	}
 	defer colorF.Close()
 
-	text := buildColorSpanText(body, ranges)
+	text := buildColorSpanText(body, ranges, viewportQ0, viewportQ1)
 	if text != "" {
 		colorF.WriteString(text)
 	}
 }
 
-func buildColorSpanText(body []byte, ranges []gotreesitter.HighlightRange) string {
+func buildColorSpanText(body []byte, ranges []gotreesitter.HighlightRange, viewportQ0, viewportQ1 int) string {
 	if len(ranges) == 0 {
 		return ""
 	}
 
 	byteToRune := buildByteToRune(body)
+
+	filterQ0, filterQ1 := viewportQ0, viewportQ1
+	if viewportQ0 == 0 && viewportQ1 == 0 {
+		filterQ1 = len(byteToRune)
+	} else {
+		margin := max(5000, 2*(viewportQ1-viewportQ0))
+		filterQ0 = max(0, viewportQ0-margin)
+		filterQ1 = min(len(byteToRune), viewportQ1+margin)
+	}
 
 	var sb strings.Builder
 	for _, r := range ranges {
@@ -266,6 +288,9 @@ func buildColorSpanText(body []byte, ranges []gotreesitter.HighlightRange) strin
 		}
 		q0, q1 := byteToRune[start], byteToRune[end]
 		if q0 >= q1 {
+			continue
+		}
+		if q0 >= filterQ1 || q1 <= filterQ0 {
 			continue
 		}
 		fmt.Fprintf(&sb, "%d %d %s\n", q0, q1, attr)

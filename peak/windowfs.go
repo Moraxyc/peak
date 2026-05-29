@@ -65,8 +65,14 @@ func (fs *windowFs) Stat(name string) (os.FileInfo, error) {
 		return &simpleFileInfo{name: "wrsel", mode: 0200}, nil
 	case "errors":
 		return &simpleFileInfo{name: "errors", mode: 0200}, nil
+	case "viewport":
+		fs.win.lk.Lock()
+		q0, q1 := fs.win.visibleRuneRange()
+		fs.win.lk.Unlock()
+		size := int64(len(fmt.Sprintf("%d %d\n", q0, q1)))
+		return &simpleFileInfo{name: "viewport", mode: 0444, size: size}, nil
 	case "color":
-		return &simpleFileInfo{name: "color", mode: 0200}, nil
+		return &simpleFileInfo{name: "color", mode: 0644}, nil
 	case "io":
 		if tv, ok := fs.win.body.(*TermView); ok {
 			if tv.externalPTY() != nil {
@@ -160,6 +166,8 @@ func (fs *windowFs) OpenFile(name string, flag int, perm os.FileMode) (afero.Fil
 		return &winErrorsFile{win: fs.win}, nil
 	case "color":
 		return &winColorFile{win: fs.win}, nil
+	case "viewport":
+		return &winViewportFile{win: fs.win}, nil
 	case "io":
 		if tv, ok := fs.win.body.(*TermView); ok {
 			if pty := tv.externalPTY(); pty != nil {
@@ -231,6 +239,7 @@ func (f *winDirFile) Readdir(count int) ([]os.FileInfo, error) {
 		&simpleFileInfo{name: "rdsel", mode: 0444},
 		&simpleFileInfo{name: "wrsel", mode: 0200},
 		&simpleFileInfo{name: "errors", mode: 0200},
+		&simpleFileInfo{name: "viewport", mode: 0444},
 		&simpleFileInfo{name: "color", mode: 0200},
 	}
 	if tv, ok := f.win.body.(*TermView); ok {
@@ -551,6 +560,33 @@ func (f *winErrorsFile) Close() error {
 	msg := string(f.writes)
 	f.win.editor.execCh <- execReq{col: f.win.parent, win: f.win, text: msg, kind: 'e'}
 	return nil
+}
+
+// ---- viewport ----
+
+type winViewportFile struct {
+	winStub
+	win *Window
+}
+
+func (f *winViewportFile) Name() string   { return "viewport" }
+func (f *winViewportFile) Stat() (os.FileInfo, error) {
+	return &simpleFileInfo{name: "viewport", mode: 0444}, nil
+}
+
+func (f *winViewportFile) ReadAt(p []byte, off int64) (int, error) {
+	f.win.lk.Lock()
+	q0, q1 := f.win.visibleRuneRange()
+	f.win.lk.Unlock()
+	data := []byte(fmt.Sprintf("%d %d\n", q0, q1))
+	if off >= int64(len(data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, data[off:])
+	if off+int64(n) >= int64(len(data)) {
+		return n, io.EOF
+	}
+	return n, nil
 }
 
 // ---- simpleFileInfo ----

@@ -638,7 +638,7 @@ func TestBuildColorSpanText(t *testing.T) {
 		{StartByte: 25, EndByte: 26, Capture: "number"},
 	}
 
-	got := buildColorSpanText(body, ranges)
+	got := buildColorSpanText(body, ranges, 0, 0)
 	want := "0 7 keyword\n13 16 keyword\n17 21 variable\n24 25 number\n"
 	if got != want {
 		t.Fatalf("buildColorSpanText() = %q, want %q", got, want)
@@ -654,7 +654,7 @@ func TestBuildColorSpanTextSkipsInvalidAndUnknownRanges(t *testing.T) {
 		{StartByte: 1, EndByte: 3, Capture: "string"},
 	}
 
-	got := buildColorSpanText(body, ranges)
+	got := buildColorSpanText(body, ranges, 0, 0)
 	want := "1 3 string\n"
 	if got != want {
 		t.Fatalf("buildColorSpanText() = %q, want %q", got, want)
